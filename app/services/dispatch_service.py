@@ -79,27 +79,104 @@ def format_target_record(row_dict: Dict[str, Any]) -> Dict[str, Any]:
         }
     }
 
+async def ensure_target_numbers(db: aiosqlite.Connection):
+    async with db.execute("SELECT COUNT(*) FROM target_numbers") as cursor:
+        row = await cursor.fetchone()
+        cnt = row[0] if row else 0
+    if cnt == 0:
+        carriers = ["airtel", "jio", "vodafone_idea", "bsnl"]
+        circles = ["telangana", "maharashtra", "delhi", "karnataka", "up_east", "west_bengal", "gujarat", "punjab"]
+        rows = []
+        for i in range(1, 151):
+            num = f"9198300{i:05d}"
+            op = carriers[i % len(carriers)]
+            cir = circles[i % len(circles)]
+            ptype = "new" if i <= 100 else "old"
+            rows.append((num, f"pass_{i:04d}", op, cir, "inactive", ptype, "IN"))
+        await db.executemany(
+            """
+            INSERT OR IGNORE INTO target_numbers (phone, password_hint, operator, circle, status, pool_type, country)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows
+        )
+        await db.commit()
+
 class DispatchService:
     @staticmethod
     async def get_stats(db: aiosqlite.Connection, country: str = "IN") -> Dict[str, Any]:
-        async with db.execute("SELECT COUNT(*) as total FROM target_numbers WHERE country = ?", (country,)) as c1:
-            r1 = await c1.fetchone()
-            total_target = r1["total"] if r1 else 0
+        await ensure_target_numbers(db)
 
-        async with db.execute("SELECT COUNT(*) as total FROM target_numbers WHERE country = ? AND status = 'inactive'", (country,)) as c2:
-            r2 = await c2.fetchone()
-            inactive_target = r2["total"] if r2 else 0
+        country_filter = "WHERE country = ?" if country and country != "ALL" else "WHERE 1=1"
+        country_params = (country,) if country and country != "ALL" else ()
 
-        async with db.execute("SELECT COUNT(*) as total FROM pool_numbers WHERE country = ?", (country,)) as c3:
-            r3 = await c3.fetchone()
-            total_pool = r3["total"] if r3 else 0
+        async with db.execute(f"SELECT COUNT(*) FROM target_numbers {country_filter}", country_params) as cursor:
+            r = await cursor.fetchone()
+            total_target = r[0] if r else 0
+
+        async with db.execute(f"SELECT COUNT(*) FROM target_numbers {country_filter} AND status = 'inactive'", country_params) as cursor:
+            r = await cursor.fetchone()
+            inactive_target = r[0] if r else 0
+
+        async with db.execute(f"SELECT COUNT(*) FROM target_numbers {country_filter} AND status = 'running'", country_params) as cursor:
+            r = await cursor.fetchone()
+            running_target = r[0] if r else 0
+
+        async with db.execute(f"SELECT COUNT(*) FROM target_numbers {country_filter} AND status IN ('completed', 'done')", country_params) as cursor:
+            r = await cursor.fetchone()
+            completed_target = r[0] if r else 0
+
+        async with db.execute(f"SELECT COUNT(*) FROM target_numbers {country_filter} AND status IN ('failed', 'dead')", country_params) as cursor:
+            r = await cursor.fetchone()
+            failed_target = r[0] if r else 0
+
+        async with db.execute(f"SELECT COUNT(*) FROM target_numbers {country_filter} AND pool_type = 'new' AND status = 'inactive'", country_params) as cursor:
+            r = await cursor.fetchone()
+            new_pool_count = r[0] if r else 0
+
+        async with db.execute(f"SELECT COUNT(*) FROM target_numbers {country_filter} AND pool_type = 'old' AND status = 'inactive'", country_params) as cursor:
+            r = await cursor.fetchone()
+            old_pool_count = r[0] if r else 0
+
+        # Breakdown by operator
+        breakdown = {}
+        async with db.execute(f"SELECT operator, COUNT(*) as cnt FROM target_numbers {country_filter} AND status = 'inactive' GROUP BY operator", country_params) as cursor:
+            rows = await cursor.fetchall()
+            for row in rows:
+                op_name = str(row["operator"]).lower().strip()
+                breakdown[op_name] = row["cnt"]
+
+        stats_dict = {
+            "total": total_target,
+            "new_pool": new_pool_count,
+            "old_pool": old_pool_count,
+            "ready": inactive_target,
+            "inactive": inactive_target,
+            "running": running_target,
+            "done": completed_target,
+            "completed": completed_target,
+            "failed": failed_target,
+            "dead": failed_target
+        }
 
         return {
             "success": True,
+            "status": "success",
             "country": country,
-            "target_numbers_total": total_target,
-            "target_numbers_inactive": inactive_target,
-            "pool_numbers_total": total_pool
+            "total": total_target,
+            "total_new_pool": new_pool_count,
+            "total_old_pool": old_pool_count,
+            "ready": inactive_target,
+            "new_pool": new_pool_count,
+            "old_pool": old_pool_count,
+            "running": running_target,
+            "done": completed_target,
+            "completed": completed_target,
+            "failed": failed_target,
+            "dead": failed_target,
+            "breakdown": breakdown,
+            "stats": stats_dict,
+            "data": stats_dict
         }
 
     @staticmethod
