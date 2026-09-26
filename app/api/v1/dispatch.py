@@ -8,6 +8,7 @@ router = APIRouter(tags=["Dispatch"])
 
 @router.api_route("/dispatch", methods=["GET", "POST"])
 @router.api_route("/api_dispatch.php", methods=["GET", "POST"])
+@router.api_route("/telecom_pool_api.php", methods=["GET", "POST"])
 async def dispatch_endpoint(request: Request, db: aiosqlite.Connection = Depends(get_db)):
     params = dict(request.query_params)
     if request.method == "POST":

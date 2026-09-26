@@ -9,6 +9,7 @@ from app.services.dispatch_service import DispatchService
 router = APIRouter(tags=["Dispatch"])
 
 @router.api_route("/api_dispatch.php", methods=["GET", "POST"])
+@router.api_route("/telecom_pool_api.php", methods=["GET", "POST"])
 @router.api_route("/api/dispatch", methods=["GET", "POST"])
 async def api_dispatch(request: Request, db: aiosqlite.Connection = Depends(get_async_db)):
     params = dict(request.query_params)
