@@ -79,34 +79,9 @@ def format_target_record(row_dict: Dict[str, Any]) -> Dict[str, Any]:
         }
     }
 
-async def ensure_target_numbers(db: aiosqlite.Connection):
-    async with db.execute("SELECT COUNT(*) FROM target_numbers") as cursor:
-        row = await cursor.fetchone()
-        cnt = row[0] if row else 0
-    if cnt == 0:
-        carriers = ["airtel", "jio", "vodafone_idea", "bsnl"]
-        circles = ["telangana", "maharashtra", "delhi", "karnataka", "up_east", "west_bengal", "gujarat", "punjab"]
-        rows = []
-        for i in range(1, 151):
-            num = f"9198300{i:05d}"
-            op = carriers[i % len(carriers)]
-            cir = circles[i % len(circles)]
-            ptype = "new" if i <= 100 else "old"
-            rows.append((num, f"pass_{i:04d}", op, cir, "inactive", ptype, "IN"))
-        await db.executemany(
-            """
-            INSERT OR IGNORE INTO target_numbers (phone, password_hint, operator, circle, status, pool_type, country)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            rows
-        )
-        await db.commit()
-
 class DispatchService:
     @staticmethod
     async def get_stats(db: aiosqlite.Connection, country: str = "IN") -> Dict[str, Any]:
-        await ensure_target_numbers(db)
-
         country_filter = "WHERE country = ?" if country and country != "ALL" else "WHERE 1=1"
         country_params = (country,) if country and country != "ALL" else ()
 
