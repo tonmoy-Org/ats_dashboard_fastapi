@@ -71,7 +71,7 @@ def init_db_schema() -> None:
 
         CREATE TABLE IF NOT EXISTS target_numbers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            phone TEXT UNIQUE NOT NULL,
+            phone TEXT NOT NULL,
             password_hint TEXT,
             operator TEXT DEFAULT 'airtel',
             circle TEXT DEFAULT 'telangana',
