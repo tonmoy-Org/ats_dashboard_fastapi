@@ -1,3 +1,4 @@
+import re
 import aiosqlite
 from typing import Dict, Any, Optional
 
@@ -97,6 +98,113 @@ class DispatchService:
             }
         else:
             return {"success": True, "found": False, "message": "No numbers available for dispatch matching filter"}
+
+    @staticmethod
+    async def report_outcome(db: aiosqlite.Connection, params: Dict[str, Any]) -> Dict[str, Any]:
+        phone_or_id = str(params.get("phone", params.get("number", params.get("id", "")))).strip()
+        status_val = str(params.get("status", params.get("outcome", params.get("step_status", "completed")))).lower().strip()
+        password = str(params.get("password", params.get("password_hint", ""))).strip()
+        full_data = str(params.get("full_data", params.get("data", ""))).strip()
+        rdp_id = str(params.get("rdp_id", params.get("bot_id", "bot_worker"))).strip()
+
+        digits = re.sub(r'\D+', '', phone_or_id)
+
+        if digits:
+            await db.execute(
+                """
+                UPDATE target_numbers 
+                SET status = ?, password_hint = CASE WHEN ? != '' THEN ? ELSE password_hint END, updated_at = CURRENT_TIMESTAMP 
+                WHERE phone LIKE ? OR id = ?
+                """,
+                (status_val, password, password, f"%{digits}%", digits)
+            )
+
+        email_or_phone = str(params.get("email", phone_or_id)).strip()
+        if email_or_phone and (password or full_data or status_val):
+            user_id = int(params.get("user_id", 0))
+            row_focus = "number" if "@" not in email_or_phone else "mail"
+            
+            await db.execute(
+                """
+                INSERT INTO accounts (user_id, email, password, status, full_data, row_focus)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (user_id, email_or_phone, password, status_val, full_data, row_focus)
+            )
+            async with db.execute("SELECT last_insert_rowid()") as cursor:
+                m_row = await cursor.fetchone()
+                master_id = m_row[0] if m_row else 0
+
+            await db.execute(
+                """
+                INSERT INTO accounts_trade (master_account_id, user_id, email, password, status, full_data, row_focus)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(email, row_focus) DO UPDATE SET
+                    password = excluded.password,
+                    status = excluded.status,
+                    full_data = excluded.full_data,
+                    timestamp = CURRENT_TIMESTAMP
+                """,
+                (master_id, user_id, email_or_phone, password, status_val, full_data, row_focus)
+            )
+
+        await db.commit()
+        return {"success": True, "status": "updated", "phone": phone_or_id, "outcome": status_val}
+
+    @staticmethod
+    async def batch_fetch(
+        db: aiosqlite.Connection,
+        country: str = "IN",
+        pool_type: str = "new",
+        carrier: str = "any",
+        circle: str = "any",
+        limit: int = 20,
+        rdp_id: str = "bot_worker"
+    ) -> Dict[str, Any]:
+        carrier_norm = normalize_carrier(carrier)
+        circle_norm = normalize_circle(circle)
+
+        query = "SELECT * FROM target_numbers WHERE status = 'inactive'"
+        sql_params = []
+
+        if country and country != "ALL":
+            query += " AND country = ?"
+            sql_params.append(country)
+
+        if pool_type != "any":
+            query += " AND pool_type = ?"
+            sql_params.append(pool_type)
+
+        if carrier_norm != "any":
+            query += " AND operator = ?"
+            sql_params.append(carrier_norm)
+
+        if circle_norm != "any":
+            query += " AND circle = ?"
+            sql_params.append(circle_norm)
+
+        query += " ORDER BY updated_at ASC, id ASC LIMIT ?"
+        sql_params.append(limit)
+
+        async with db.execute(query, tuple(sql_params)) as cursor:
+            rows = await cursor.fetchall()
+            items = [dict(r) for r in rows]
+
+        if items:
+            ids = [r["id"] for r in items]
+            placeholders = ",".join(["?"] * len(ids))
+            await db.execute(
+                f"UPDATE target_numbers SET status = 'running', assigned_rdp = ?, assigned_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders})",
+                [rdp_id] + ids
+            )
+            await db.commit()
+
+        return {
+            "success": True,
+            "count": len(items),
+            "data": items,
+            "numbers": items
+        }
 
     @staticmethod
     async def omni_search(db: aiosqlite.Connection, query_text: str) -> Dict[str, Any]:

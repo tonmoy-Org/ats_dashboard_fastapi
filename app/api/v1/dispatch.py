@@ -27,12 +27,23 @@ async def dispatch_endpoint(request: Request, db: aiosqlite.Connection = Depends
     if action in ["stats", "pool_counts_quick", "get_stats", "get_stock_summary"]:
         return await DispatchService.get_stats(db, country=country)
 
-    elif action in ["dispatch", "get_number", "claim"]:
+    elif action in ["dispatch", "get_number", "claim", "fetch_next"]:
         pool_type = str(params.get("pool_type", "new")).lower().strip()
         carrier = str(params.get("carrier", params.get("operator", "any")))
         circle = str(params.get("circle", "any"))
         rdp_id = str(params.get("rdp_id", params.get("assigned_rdp", "bot_worker")))
         return await DispatchService.dispatch_number(db, country, pool_type, carrier, circle, rdp_id)
+
+    elif action in ["batch_fetch", "fetch_pool", "fetch_batch"]:
+        pool_type = str(params.get("pool_type", "new")).lower().strip()
+        carrier = str(params.get("carrier", params.get("operator", "any")))
+        circle = str(params.get("circle", "any"))
+        limit = int(params.get("limit", 20))
+        rdp_id = str(params.get("rdp_id", params.get("assigned_rdp", "bot_worker")))
+        return await DispatchService.batch_fetch(db, country, pool_type, carrier, circle, limit, rdp_id)
+
+    elif action in ["report_outcome", "update_status", "report_status", "update_step_status", "upload_cookie"]:
+        return await DispatchService.report_outcome(db, params)
 
     elif action in ["omni_search", "search"]:
         q = str(params.get("q", params.get("query", "")))
