@@ -19,7 +19,8 @@ async def dispatch_endpoint(request: Request, db: aiosqlite.Connection = Depends
             form = await request.form()
             params.update(dict(form))
 
-    action = str(params.get("action", "stats")).lower().strip()
+    has_action_param = "action" in params
+    action = str(params.get("action", "batch_fetch" if not has_action_param else "dispatch")).lower().strip()
     country = str(params.get("country", "IN")).upper().strip()
     if country in ["", "ALL"]:
         country = "IN"

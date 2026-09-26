@@ -21,6 +21,64 @@ def normalize_circle(c: str) -> str:
         return "any"
     return c.replace(" ", "_").replace("-", "_")
 
+def format_target_record(row_dict: Dict[str, Any]) -> Dict[str, Any]:
+    record_id = row_dict.get("id", 0)
+    phone_raw = str(row_dict.get("phone", "")).strip()
+    clean_digits = re.sub(r'\D+', '', phone_raw)
+    if len(clean_digits) == 10 and clean_digits[0] in '6789':
+        phone_full = f"91{clean_digits}"
+    else:
+        phone_full = clean_digits if clean_digits else phone_raw
+
+    password = str(row_dict.get("password_hint", "") or row_dict.get("password", "")).strip()
+    operator = str(row_dict.get("operator", "airtel")).lower().strip()
+    circle = str(row_dict.get("circle", "telangana")).lower().strip()
+    pool_type = str(row_dict.get("pool_type", "new")).lower().strip()
+    country = str(row_dict.get("country", "IN")).upper().strip()
+    status = str(row_dict.get("status", "inactive")).upper().strip()
+
+    prefix = clean_digits[:4] if len(clean_digits) >= 4 else ""
+    old_data = f"{phone_full}\t{password}\t{operator}\t{circle}"
+
+    op_display = "Vi (Vodafone Idea)" if operator in ["vi", "vodafone_idea", "vodafone", "idea"] else operator.title()
+    circle_display = circle.replace("_", " ").title()
+
+    return {
+        "id": record_id,
+        "target_id": record_id,
+        "pool_record_id": record_id,
+        "number_id": record_id,
+        "phone": phone_full,
+        "number": phone_full,
+        "email": phone_full,
+        "target_number": phone_full,
+        "password": password,
+        "password_hint": password,
+        "pass": password,
+        "recovery_email": "",
+        "auth_key": "",
+        "backup_codes": "",
+        "old_data": old_data,
+        "country": country,
+        "carrier": operator,
+        "operator": operator,
+        "pool_carrier": operator,
+        "circle": circle,
+        "pool_circle": circle,
+        "pool_type": pool_type,
+        "status": status,
+        "tier": 1,
+        "sister_fallback": False,
+        "engine": "FastAPI-SQLite-Engine",
+        "telecom": {
+            "operator": operator,
+            "operatorName": op_display,
+            "circle": circle,
+            "circleName": circle_display,
+            "prefix": prefix
+        }
+    }
+
 class DispatchService:
     @staticmethod
     async def get_stats(db: aiosqlite.Connection, country: str = "IN") -> Dict[str, Any]:
@@ -83,21 +141,26 @@ class DispatchService:
                 (rdp_id, row_dict["id"])
             )
             await db.commit()
+            formatted = format_target_record(row_dict)
             return {
                 "success": True,
+                "status": "success",
+                "has_target": True,
                 "found": True,
-                "data": {
-                    "id": row_dict["id"],
-                    "phone": row_dict["phone"],
-                    "password_hint": row_dict.get("password_hint", ""),
-                    "operator": row_dict.get("operator", ""),
-                    "circle": row_dict.get("circle", ""),
-                    "pool_type": row_dict.get("pool_type", "new"),
-                    "country": row_dict.get("country", "IN")
-                }
+                "target": formatted,
+                "data": formatted,
+                "number": formatted,
+                "targets": [formatted]
             }
         else:
-            return {"success": True, "found": False, "message": "No numbers available for dispatch matching filter"}
+            return {
+                "success": True,
+                "status": "empty",
+                "has_target": False,
+                "found": False,
+                "targets": [],
+                "message": "No numbers available for dispatch matching filter"
+            }
 
     @staticmethod
     async def report_outcome(db: aiosqlite.Connection, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -199,11 +262,17 @@ class DispatchService:
             )
             await db.commit()
 
+        formatted_items = [format_target_record(r) for r in items]
+        has_target = len(formatted_items) > 0
+
         return {
             "success": True,
-            "count": len(items),
-            "data": items,
-            "numbers": items
+            "status": "success" if has_target else "empty",
+            "has_target": has_target,
+            "count": len(formatted_items),
+            "data": formatted_items,
+            "targets": formatted_items,
+            "numbers": formatted_items
         }
 
     @staticmethod
