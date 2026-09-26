@@ -57,12 +57,13 @@ FastAPI implementation of `ats_dashboard` backend, supporting high-concurrency S
 
 ---
 
-## 🌐 Deploying to VPS (`23.95.140.149`)
+## 🌐 Deployment Guide
 
-To run this Python FastAPI backend on the VPS using PM2:
+To run this Python FastAPI backend on a Linux server using Systemd or PM2:
 
 ```bash
 cd /var/www/ats_dashboard_fastapi
-pip install -r requirements.txt
-pm2 start "uvicorn main:app --host 0.0.0.0 --port 8000" --name "ats-fastapi-backend"
+python3 -m venv venv
+venv/bin/pip install -r requirements.txt
+systemctl restart ats-fastapi
 ```
