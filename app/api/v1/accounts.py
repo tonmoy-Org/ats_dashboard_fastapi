@@ -27,7 +27,7 @@ async def api_v2_accounts(request: Request, db: aiosqlite.Connection = Depends(g
     limit = min(500, max(1, int(params.get("limit", 25))))
     offset = (page - 1) * limit
     
-    focus = str(params.get("focus", "mail")).lower().strip()
+    focus = str(params.get("focus", "all")).lower().strip()
     role = str(params.get("role", "all")).lower().strip()
     search = str(params.get("search", "")).strip()
 
