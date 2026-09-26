@@ -1,0 +1,54 @@
+import time
+from datetime import datetime
+import aiosqlite
+
+from app.core.config import settings
+from app.core.security import verify_password
+from app.schemas.auth import AuthRequest, AuthResponse
+
+class AuthService:
+    @staticmethod
+    async def authenticate_user(db: aiosqlite.Connection, payload: AuthRequest) -> AuthResponse:
+        if payload.secret and payload.secret != settings.ATS_SUPER_SECRET:
+            return AuthResponse(status="error", message="Unauthorized access.")
+        
+        if not payload.username.strip() or not payload.password:
+            return AuthResponse(status="error", message="Username and password required.")
+        
+        async with db.execute("SELECT * FROM users WHERE username = ?", (payload.username.strip(),)) as cursor:
+            user = await cursor.fetchone()
+            
+        if not user:
+            return AuthResponse(status="error", message="Invalid Username or Password.")
+        
+        user_dict = dict(user)
+        
+        if not verify_password(payload.password, user_dict["password_hash"]):
+            return AuthResponse(status="error", message="Invalid Username or Password.")
+        
+        # Subscription Expiry Validation
+        if user_dict.get("role") != "admin" and user_dict.get("expiry_date"):
+            try:
+                exp_str = str(user_dict["expiry_date"])
+                exp_time = datetime.strptime(exp_str, "%Y-%m-%d %H:%M:%S").timestamp()
+                if time.time() > exp_time:
+                    return AuthResponse(status="error", message="Subscription Expired! Contact Admin.")
+            except Exception:
+                pass
+
+        # HWID Binding Check
+        if user_dict.get("role") != "admin" and payload.hwid:
+            current_hwid = user_dict.get("hwid")
+            if not current_hwid:
+                await db.execute("UPDATE users SET hwid = ? WHERE id = ?", (payload.hwid, user_dict["id"]))
+                await db.commit()
+            elif current_hwid != payload.hwid:
+                return AuthResponse(status="error", message="License is bound to another PC!")
+
+        return AuthResponse(
+            status="success",
+            message="License valid.",
+            role=user_dict.get("role", "client"),
+            user_id=user_dict["id"],
+            expiry_date=user_dict.get("expiry_date") or "Lifetime"
+        )
