@@ -114,12 +114,19 @@ class DispatchService:
         carrier_norm = normalize_carrier(carrier)
         circle_norm = normalize_circle(circle)
 
-        query = "SELECT * FROM target_numbers WHERE country = ? AND status = 'inactive'"
-        sql_params = [country]
+        base_query = "SELECT * FROM target_numbers WHERE status = 'inactive'"
+        base_params = []
+
+        if country and country != "ALL":
+            base_query += " AND country = ?"
+            base_params.append(country)
 
         if pool_type != "any":
-            query += " AND pool_type = ?"
-            sql_params.append(pool_type)
+            base_query += " AND pool_type = ?"
+            base_params.append(pool_type)
+
+        query = base_query
+        sql_params = list(base_params)
 
         if carrier_norm != "any":
             query += " AND operator = ?"
@@ -134,6 +141,14 @@ class DispatchService:
         async with db.execute(query, tuple(sql_params)) as cursor:
             number_row = await cursor.fetchone()
 
+        is_fallback = False
+        if not number_row and (carrier_norm != "any" or circle_norm != "any"):
+            fallback_query = base_query + " ORDER BY updated_at ASC, id ASC LIMIT 1"
+            async with db.execute(fallback_query, tuple(base_params)) as cursor:
+                number_row = await cursor.fetchone()
+                if number_row:
+                    is_fallback = True
+
         if number_row:
             row_dict = dict(number_row)
             await db.execute(
@@ -142,6 +157,8 @@ class DispatchService:
             )
             await db.commit()
             formatted = format_target_record(row_dict)
+            if is_fallback:
+                formatted["sister_fallback"] = True
             return {
                 "success": True,
                 "status": "success",
@@ -227,16 +244,19 @@ class DispatchService:
         carrier_norm = normalize_carrier(carrier)
         circle_norm = normalize_circle(circle)
 
-        query = "SELECT * FROM target_numbers WHERE status = 'inactive'"
-        sql_params = []
+        base_query = "SELECT * FROM target_numbers WHERE status = 'inactive'"
+        base_params = []
 
         if country and country != "ALL":
-            query += " AND country = ?"
-            sql_params.append(country)
+            base_query += " AND country = ?"
+            base_params.append(country)
 
         if pool_type != "any":
-            query += " AND pool_type = ?"
-            sql_params.append(pool_type)
+            base_query += " AND pool_type = ?"
+            base_params.append(pool_type)
+
+        query = base_query
+        sql_params = list(base_params)
 
         if carrier_norm != "any":
             query += " AND operator = ?"
@@ -253,6 +273,16 @@ class DispatchService:
             rows = await cursor.fetchall()
             items = [dict(r) for r in rows]
 
+        is_fallback = False
+        if not items and (carrier_norm != "any" or circle_norm != "any"):
+            fallback_query = base_query + " ORDER BY updated_at ASC, id ASC LIMIT ?"
+            fallback_params = list(base_params) + [limit]
+            async with db.execute(fallback_query, tuple(fallback_params)) as cursor:
+                rows = await cursor.fetchall()
+                items = [dict(r) for r in rows]
+                if items:
+                    is_fallback = True
+
         if items:
             ids = [r["id"] for r in items]
             placeholders = ",".join(["?"] * len(ids))
@@ -263,6 +293,10 @@ class DispatchService:
             await db.commit()
 
         formatted_items = [format_target_record(r) for r in items]
+        if is_fallback:
+            for item in formatted_items:
+                item["sister_fallback"] = True
+
         has_target = len(formatted_items) > 0
 
         return {
