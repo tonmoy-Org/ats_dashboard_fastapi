@@ -21,9 +21,11 @@ async def dispatch_endpoint(request: Request, db: aiosqlite.Connection = Depends
 
     has_action_param = "action" in params
     action = str(params.get("action", "batch_fetch" if not has_action_param else "dispatch")).lower().strip()
-    country = str(params.get("country", "IN")).upper().strip()
-    if country in ["", "ALL"]:
-        country = "IN"
+    country_raw = str(params.get("country", params.get("pool_country", "ALL"))).strip().lower()
+    if not country_raw or any(w in country_raw for w in ["all", "auto", "any", "proxy"]):
+        country = "ALL"
+    else:
+        country = country_raw.upper()
 
     if action in ["stats", "pool_counts_quick", "get_stats", "get_stock_summary"]:
         return await DispatchService.get_stats(db, country=country)

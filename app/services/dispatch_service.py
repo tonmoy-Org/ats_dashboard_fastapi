@@ -10,14 +10,14 @@ CARRIER_MAP = {
 }
 
 def normalize_carrier(c: str) -> str:
-    c = c.lower().strip()
-    if not c or c in ["all", "auto", "any"]:
+    c = str(c or "").lower().strip()
+    if not c or any(w in c for w in ["all", "auto", "any", "proxy"]):
         return "any"
     return CARRIER_MAP.get(c, c)
 
 def normalize_circle(c: str) -> str:
-    c = c.lower().strip()
-    if not c or c in ["all", "auto", "any"]:
+    c = str(c or "").lower().strip()
+    if not c or any(w in c for w in ["all", "auto", "any", "proxy"]):
         return "any"
     return c.replace(" ", "_").replace("-", "_")
 
